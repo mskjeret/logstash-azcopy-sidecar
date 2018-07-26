@@ -1,0 +1,137 @@
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: "logstash-configmap"
+  namespace: "elastic"
+data:
+  logstash.conf: |
+    input {
+      file {
+        path => "/usr/share/logstash/azure/blob/**/*.log"
+        ignore_older => 0
+        start_position => "beginning"
+        sincedb_path => "/usr/share/logstash/azure/sincedb"
+      }
+    }
+
+    filter {
+      ## Ignore the comments that IIS will add to the start of the W3C logs
+      #
+      if [message] =~ "^#" {
+        drop {}
+      }
+
+      grok {
+          match => ["message", "%{TIMESTAMP_ISO8601:log_timestamp} %{NOTSPACE:sitename} %{WORD:method} %{URIPATH:uriStem} %{NOTSPACE:uriQuery} %{NUMBER:port} %{NOTSPACE:username} %{IPORHOST:clientIP} %{NOTSPACE:userAgent} %{NOTSPACE:cookie} %{NOTSPACE:referer} %{NOTSPACE:requestHost} %{NUMBER:response} %{NUMBER:subresponse} %{NUMBER:win32response} %{NUMBER:bytesSent} %{NUMBER:bytesReceived} %{NUMBER:timetaken}"]
+      }
+
+      geoip {
+        source => "clientIP"
+        target => "geoip"
+        add_field => [ "[geoip][coordinates]", "%{[geoip][longitude]}" ]
+        add_field => [ "[geoip][coordinates]", "%{[geoip][latitude]}"  ]
+      }
+      mutate {
+        convert => [ "[geoip][coordinates]", "float"]
+      }
+
+      ## Set the Event Timesteamp from the log
+      #
+      date {
+        match => [ "log_timestamp", "YYYY-MM-dd HH:mm:ss" ]
+          timezone => "Etc/UTC"
+      }
+
+      ## If the log record has a value for 'bytesSent', then add a new field
+      #   to the event that converts it to kilobytes
+      if [bytesSent] {
+        ruby {
+          code => "event.set('kilobytesSent', event.get('bytesSent').to_i / 1024.0)"
+        }
+      }
+
+      ## Do the same conversion for the bytes received value
+      if [bytesReceived] {
+        ruby {
+          code => "event.set('kilobytesReceived', event.get('bytesReceived').to_i / 1024.0 )"
+        }
+      }
+
+      ## Perform some mutations on the records to prep them for Elastic
+      mutate {
+        ## Convert some fields from strings to integers
+        convert => ["bytesSent", "integer"]
+        convert => ["bytesReceived", "integer"]
+        convert => ["timetaken", "integer"]
+        convert => ["response", "integer"]
+
+        ## Create a new field for the reverse DNS lookup below
+        add_field => { "clientHostname" => "%{clientIP}" }
+
+        ## Finally remove the original log_timestamp field since the event will have the proper date on it
+        remove_field => [ "log_timestamp"]
+      }
+
+      ## Parse out the user agent
+      useragent {
+        source=> "useragent"
+        prefix=> "browser"
+      }
+    }
+    output {
+      elasticsearch {
+        hosts => "elasticsearch:9200"
+        manage_template => false
+        index => "azure_%{+YYYY.MM.dd}"
+      }
+    }
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: logstash-azure-was
+  namespace: elastic
+  labels:
+    role: logstash-azure-was
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        role: logstash-azure-was
+    spec:
+      containers:
+      - name: logstash-azure-was
+        image: docker.elastic.co/logstash/logstash-oss:6.3.1
+        volumeMounts:
+        - name: logstash-pipeline
+          mountPath: /usr/share/logstash/pipeline/
+        - name: azure-storage
+          mountPath: /usr/share/logstash/azure/
+        env:
+        - name: LS_JAVA_OPTS
+          value: "-Xmx3g"
+      - name: azure-blob-download
+        image: repo.evrybgo.no/azure-blob-download:0.0.1
+        volumeMounts:
+        - name: azure-storage
+          mountPath: /home/azure/mount
+        env:
+        - name: AZURE_BLOB_URL
+          value: https://myaccount.blob.core.windows.net/mycontainer
+        - name: AZURE_BLOB_KEY
+          value: BASE64_access_code
+        - name: AZURE_SLEEP_INTERVAL
+          value: 2    
+      volumes:
+      - name: logstash-pipeline
+        configMap:
+          name: "logstash-configmap"
+          items:
+          - key: logstash.conf
+            path: logstash.conf
+      - name: azure-storage
+        emptyDir: {}
+
+        
