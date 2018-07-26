@@ -113,7 +113,7 @@ spec:
         - name: LS_JAVA_OPTS
           value: "-Xmx3g"
       - name: azure-blob-download
-        image: repo.evrybgo.no/azure-blob-download:0.0.1
+        image: mskjeret/logstash-azopy-sidecar:0.0.1
         volumeMounts:
         - name: azure-storage
           mountPath: /home/azure/mount
