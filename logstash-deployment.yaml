@@ -113,17 +113,17 @@ spec:
         - name: LS_JAVA_OPTS
           value: "-Xmx3g"
       - name: azure-blob-download
-        image: mskjeret/logstash-azopy-sidecar:0.0.1
+        image: mskjeret/logstash-azcopy-sidecar:0.0.2
         volumeMounts:
         - name: azure-storage
           mountPath: /home/azure/mount
         env:
         - name: AZURE_BLOB_URL
-          value: https://myaccount.blob.core.windows.net/mycontainer
+          value: "https://myaccount.blob.core.windows.net/mycontainer"
         - name: AZURE_BLOB_KEY
-          value: BASE64_access_code
+          value: "BASE64_access_code"
         - name: AZURE_SLEEP_INTERVAL
-          value: 2    
+          value: "2"    
       volumes:
       - name: logstash-pipeline
         configMap:
