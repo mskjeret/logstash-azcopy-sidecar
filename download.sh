@@ -10,7 +10,9 @@ if [[ -z "${AZURE_BLOB_KEY}" ]]; then
   exit 1
 fi
 
-DESTINATION=${BLOB_DESTINATION:"/home/azure/mount/blob"}
+DEFAULT_DESTINATION="/home/azure/mount/blob"
+
+DESTINATION=${BLOB_DESTINATION:-DEFAULT_DESTINATION}
 
 SLEEP_INTERVAL=${AZURE_SLEEP_INTERVAL:-2}
 
